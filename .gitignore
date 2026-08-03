@@ -1,0 +1,28 @@
+# Keep raw, unsanitized material OUT of the repo.
+# Develop with real values locally; commit only sanitized files.
+
+# Raw notes (may contain real IPs, hostnames, credentials)
+*_raw.md
+*_private.md
+notes-private/
+raw/
+
+# Raw logs and exports (contain hostnames, IPs, SIDs)
+*.log
+*.json
+*.json.gz
+archives/
+alerts/
+
+# Credentials / secrets — never commit
+*.key
+*.pem
+*.cert
+secrets*
+*password*
+*credential*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
