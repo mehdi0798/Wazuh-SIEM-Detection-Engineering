@@ -1,0 +1,28 @@
+<!--
+  Custom Linux detection rules — organized by MITRE ATT&CK groups.
+  Custom rule IDs use the 100000+ range.
+  (Sanitized portfolio copy.)
+-->
+<group name="linux,local,">
+
+  <!-- =====================================================
+       GROUP 1: Linux Authentication  (MITRE T1110 Brute Force)
+       ===================================================== -->
+
+  <!-- DETECTION: Linux brute force, built on Wazuh base rule 2502
+       (2502 = "user missed the password more than one time", T1110).
+       We escalate/own it as our controlled detection at our severity.
+       NOTE: 2502 already counts repeated failures; this rule fires on a
+       single occurrence of 2502 (it re-labels/escalates, it does not itself
+       count frequency — contrast with the Windows rule 100201 which uses
+       if_matched_sid + frequency).
+       VALIDATED: live-fire (repeated failed SSH logins from a remote host). -->
+  <rule id="100400" level="12">
+    <if_sid>2502</if_sid>
+    <description>Linux brute force - repeated authentication failures</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+</group>
