@@ -4,24 +4,246 @@
   (Sanitized portfolio copy.)
 -->
 <group name="linux,local,">
-
   <!-- =====================================================
        GROUP 1: Linux Authentication  (MITRE T1110 Brute Force)
        ===================================================== -->
 
-  <!-- DETECTION: Linux brute force, built on Wazuh base rule 2502
-       (2502 = "user missed the password more than one time", T1110).
-       We escalate/own it as our controlled detection at our severity.
-       NOTE: 2502 already counts repeated failures; this rule fires on a
-       single occurrence of 2502 (it re-labels/escalates, it does not itself
-       count frequency — contrast with the Windows rule 100201 which uses
-       if_matched_sid + frequency).
-       VALIDATED: live-fire (repeated failed SSH logins from a remote host). -->
+  <!-- ── T1110 — Brute Force (generic) ──────────────────── -->
+
+  <!-- DETECTION: Escalation of Wazuh 2502 (user missed password
+       more than one time). Single occurrence re-labels at our severity.
+       VALIDATED: live-fire (repeated failed SSH logins). -->
   <rule id="100400" level="12">
     <if_sid>2502</if_sid>
     <description>Linux brute force - repeated authentication failures</description>
     <mitre>
       <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <!-- DETECTION: Wazuh 5720 (multiple SSHD authentication failures).
+       Escalates to level 12 and tags with MITRE. -->
+  <rule id="100401" level="12">
+    <if_sid>5720</if_sid>
+    <description>Multiple SSH authentication failures detected</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <!-- DETECTION: Wazuh 5712 (SSHD brute force trying to get access).
+       Wazuh already flags this; we own it at our severity + MITRE tag. -->
+  <rule id="100402" level="13">
+    <if_sid>5712</if_sid>
+    <description>SSH brute force attack detected by SSHD</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <!-- DETECTION: Wazuh 5763 (maximum authentication attempts exceeded).
+       Fires when SSHD disconnects a client for too many attempts in
+       a single connection. Strong brute-force indicator. -->
+  <rule id="100403" level="13">
+    <if_sid>5763</if_sid>
+    <description>SSH maximum authentication attempts exceeded</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <!-- ── T1110.001 — Password Guessing ─────────────────── -->
+
+  <!-- DETECTION: Wazuh 5711 (attempt to login using a non-existent user).
+       Attacker guessing usernames — classic password-guessing recon. -->
+  <rule id="100404" level="10">
+    <if_sid>5711</if_sid>
+    <description>SSH login attempt with non-existent user</description>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+  </rule>
+
+  <!-- DETECTION: Wazuh 2504 (invalid user attempted login).
+       PAM-level equivalent of non-existent user attempt. -->
+  <rule id="100405" level="10">
+    <if_sid>2504</if_sid>
+    <description>Login attempt with invalid user (PAM)</description>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+  </rule>
+
+  <!-- ── T1110.003 — Password Spraying ─────────────────── -->
+
+  <!-- DETECTION: High-frequency non-existent user attempts.
+       8 distinct hits on 100404 within 120 s from the same source
+       suggests username enumeration / password spraying. -->
+  <rule id="100406" level="14" frequency="8" timeframe="120">
+    <if_matched_sid>100404</if_matched_sid>
+    <same_source_ip />
+    <description>Possible password spraying - many non-existent user SSH attempts from same source</description>
+    <mitre>
+      <id>T1110.003</id>
+    </mitre>
+  </rule>
+
+  <!-- DETECTION: High-frequency PAM invalid-user attempts.
+       Same logic as 100406 but caught at the PAM layer (covers
+       services other than SSH — FTP, IMAP, etc.). -->
+  <rule id="100407" level="14" frequency="8" timeframe="120">
+    <if_matched_sid>100405</if_matched_sid>
+    <same_source_ip />
+    <description>Possible password spraying - many invalid user attempts via PAM from same source</description>
+    <mitre>
+      <id>T1110.003</id>
+    </mitre>
+  </rule>
+
+  <!-- ── T1078 — Valid Accounts ─────────────────────────── -->
+
+  <!-- DETECTION: Wazuh 5716 (SSHD authentication success).
+       We track every successful SSH login for correlation and audit.
+       Level 3 = informational, not an alert — baseline visibility. -->
+  <rule id="100408" level="3">
+    <if_sid>5716</if_sid>
+    <description>Successful SSH authentication (audit trail)</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+  </rule>
+
+  <!-- DETECTION: Successful SSH login shortly after brute-force activity.
+       If 100408 (SSH success) fires after 100400 (brute force) from the
+       same source within 600 s, the attacker may have guessed the creds.
+       High-severity composite rule. -->
+  <rule id="100409" level="14" frequency="1" timeframe="600">
+    <if_matched_sid>100400</if_matched_sid>
+    <same_source_ip />
+    <if_sid>5716</if_sid>
+    <description>Successful SSH login after brute force from same source — possible credential compromise</description>
+    <mitre>
+      <id>T1078</id>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <!-- ── T1078.003 — Valid Accounts: Local Accounts ────── -->
+
+  <!-- DETECTION: Direct root login via SSH.
+       Best practice disables PermitRootLogin; any successful root
+       SSH session is suspicious. Matches on user "root" in 5716. -->
+  <rule id="100410" level="12">
+    <if_sid>5716</if_sid>
+    <user>root</user>
+    <description>Direct root login via SSH — verify legitimacy</description>
+    <mitre>
+      <id>T1078.003</id>
+    </mitre>
+  </rule>
+
+  <!-- DETECTION: Wazuh 5710 (login attempt using a denied user).
+       SSHD DenyUsers/DenyGroups blocked this user — someone is
+       trying accounts that have been explicitly forbidden. -->
+  <rule id="100411" level="12">
+    <if_sid>5710</if_sid>
+    <description>SSH login attempt using a denied user account</description>
+    <mitre>
+      <id>T1078.003</id>
+    </mitre>
+  </rule>
+
+  <!-- ── T1078.001 — Valid Accounts: Default Accounts ──── -->
+
+  <!-- DETECTION: SSH login attempt with common default/service usernames.
+       Regex covers typical default or service accounts attackers try. -->
+  <rule id="100412" level="10">
+    <if_sid>5711</if_sid>
+    <user negate="no">admin|test|guest|oracle|postgres|mysql|ftp|www|nobody|daemon|operator</user>
+    <description>SSH login attempt using default/service account name</description>
+    <mitre>
+      <id>T1078.001</id>
+    </mitre>
+  </rule>
+
+  <!-- ── T1021.004 — Remote Services: SSH ──────────────── -->
+
+  <!-- DETECTION: Wazuh 5706 (SSH insecure connection attempt / scan).
+       Old protocol or manipulated handshake — often a scanner. -->
+  <rule id="100413" level="8">
+    <if_sid>5706</if_sid>
+    <description>SSH insecure connection attempt — possible scanning activity</description>
+    <mitre>
+      <id>T1021.004</id>
+    </mitre>
+  </rule>
+
+  <!-- DETECTION: Wazuh 5709 (possible SSH scan).
+       Rapid connection/disconnection pattern. -->
+  <rule id="100414" level="8">
+    <if_sid>5709</if_sid>
+    <description>Possible SSH port scan detected</description>
+    <mitre>
+      <id>T1021.004</id>
+    </mitre>
+  </rule>
+
+  <!-- DETECTION: Wazuh 5701 (possible attack on SSH server / version
+       gathering). Attacker probing the SSHD banner. -->
+  <rule id="100415" level="8">
+    <if_sid>5701</if_sid>
+    <description>Possible SSH server version gathering or attack</description>
+    <mitre>
+      <id>T1021.004</id>
+    </mitre>
+  </rule>
+
+  <!-- DETECTION: High-frequency SSH scanning from one source.
+       6 hits on 100414 within 60 s = aggressive scan. -->
+  <rule id="100416" level="12" frequency="6" timeframe="60">
+    <if_matched_sid>100414</if_matched_sid>
+    <same_source_ip />
+    <description>Aggressive SSH scanning from single source</description>
+    <mitre>
+      <id>T1021.004</id>
+      <id>T1595</id>
+    </mitre>
+  </rule>
+
+  <!-- ── T1531 — Account Access Removal ────────────────── -->
+
+  <!-- DETECTION: PAM user login failure (Wazuh 5503).
+       Tracks all PAM-level auth failures across services
+       (SSH, su, sudo, cron, etc.). Informational baseline. -->
+  <rule id="100417" level="6">
+    <if_sid>5503</if_sid>
+    <description>PAM authentication failure</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <!-- DETECTION: Burst of PAM failures from one source.
+       10 hits on 100417 within 120 s — likely brute force
+       against a PAM-backed service. -->
+  <rule id="100418" level="13" frequency="10" timeframe="120">
+    <if_matched_sid>100417</if_matched_sid>
+    <same_source_ip />
+    <description>PAM brute force - burst of authentication failures from same source</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <!-- ── T1557 — Adversary-in-the-Middle (auth context) ── -->
+
+  <!-- DETECTION: Wazuh 5707 (OpenSSH challenge-response exploit).
+       Attempted exploitation of keyboard-interactive auth. -->
+  <rule id="100419" level="14">
+    <if_sid>5707</if_sid>
+    <description>OpenSSH challenge-response authentication exploit attempt</description>
+    <mitre>
+      <id>T1557</id>
     </mitre>
   </rule>
 
