@@ -1,0 +1,302 @@
+<!-- ============================================================
+     Custom Firewall Rules — Wazuh SIEM
+     IDs: 100300–100319
+     Mapped to MITRE ATT&CK tactics for firewall/network activity
+     Piggyback on Wazuh base SIDs for iptables, pfSense, generic FW
+     ============================================================ -->
+
+<group name="custom_firewall,">
+
+  <!-- =====================================================
+       GROUP 1: Reconnaissance (TA0043)
+       ===================================================== -->
+
+  <!-- Rule 100300: Port scan detected — high volume of firewall drops
+       from a single source in a short window indicates network scanning.
+       Base SID 2501 = generic firewall drop action.
+       MITRE: T1046 Network Service Scanning -->
+  <rule id="100300" level="10" frequency="20" timeframe="30">
+    <if_matched_sid>2501</if_matched_sid>
+    <same_source_ip />
+    <description>Firewall: Possible port scan — $(srcip) triggered 20+ drops in 30s.</description>
+    <mitre>
+      <id>T1046</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100301: Slow / stealth port scan — fewer drops spread over
+       a longer period to evade frequency-based detection.
+       Base SID 2501 = generic firewall drop action.
+       MITRE: T1046 Network Service Scanning -->
+  <rule id="100301" level="8" frequency="10" timeframe="300">
+    <if_matched_sid>2501</if_matched_sid>
+    <same_source_ip />
+    <description>Firewall: Possible stealth scan — $(srcip) triggered 10+ drops in 5 min.</description>
+    <mitre>
+      <id>T1046</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100302: Active scanning / network sweep — single source
+       blocked reaching many different destinations.
+       Base SID 2501 = generic firewall drop action.
+       MITRE: T1595 Active Scanning -->
+  <rule id="100302" level="10" frequency="15" timeframe="60">
+    <if_matched_sid>2501</if_matched_sid>
+    <same_source_ip />
+    <different_dstip />
+    <description>Firewall: Network sweep detected — $(srcip) probing multiple hosts.</description>
+    <mitre>
+      <id>T1595</id>
+    </mitre>
+  </rule>
+
+  <!-- =====================================================
+       GROUP 2: Initial Access (TA0001)
+       ===================================================== -->
+
+  <!-- Rule 100303: Inbound connection allowed to SSH from external IP.
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1133 External Remote Services -->
+  <rule id="100303" level="8">
+    <if_sid>2502</if_sid>
+    <dstport>22</dstport>
+    <description>Firewall: Inbound SSH connection allowed to port 22 from $(srcip).</description>
+    <mitre>
+      <id>T1133</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100304: Inbound connection allowed to RDP from external IP.
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1133 External Remote Services -->
+  <rule id="100304" level="10">
+    <if_sid>2502</if_sid>
+    <dstport>3389</dstport>
+    <description>Firewall: Inbound RDP connection allowed to port 3389 from $(srcip).</description>
+    <mitre>
+      <id>T1133</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100305: Brute-force against external service — repeated
+       allowed connections to SSH from the same source.
+       Base SID 100303 (our SSH allow rule above).
+       MITRE: T1110 Brute Force -->
+  <rule id="100305" level="12" frequency="8" timeframe="120">
+    <if_matched_sid>100303</if_matched_sid>
+    <same_source_ip />
+    <description>Firewall: Possible SSH brute-force — $(srcip) with 8+ connections in 2 min.</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100306: Exploitation of public-facing app — allowed inbound
+       traffic to common web-app ports (8080, 8443, 443).
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1190 Exploit Public-Facing Application -->
+  <rule id="100306" level="6">
+    <if_sid>2502</if_sid>
+    <dstport>8080|8443</dstport>
+    <description>Firewall: Inbound traffic allowed to web-app port $(dstport) from $(srcip).</description>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+  </rule>
+
+  <!-- =====================================================
+       GROUP 3: Command and Control (TA0011)
+       ===================================================== -->
+
+  <!-- Rule 100307: Outbound traffic on non-standard high port — could
+       indicate C2 channel or reverse shell callback.
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1571 Non-Standard Port -->
+  <rule id="100307" level="8">
+    <if_sid>2502</if_sid>
+    <dstport negate="yes">20|21|22|25|53|80|110|143|443|993|995|3306|5432|8080|8443</dstport>
+    <regex>OUT=\S+</regex>
+    <description>Firewall: Outbound connection allowed on non-standard port $(dstport).</description>
+    <mitre>
+      <id>T1571</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100308: Possible DNS tunneling — high volume of outbound
+       DNS (port 53) traffic from a single host.
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1572 Protocol Tunneling -->
+  <rule id="100308" level="10" frequency="50" timeframe="60">
+    <if_matched_sid>2502</if_matched_sid>
+    <same_source_ip />
+    <dstport>53</dstport>
+    <description>Firewall: Possible DNS tunneling — $(srcip) made 50+ DNS connections in 60s.</description>
+    <mitre>
+      <id>T1572</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100309: Outbound connection to known remote-access tool ports
+       (TeamViewer 5938, AnyDesk 7070).
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1219 Remote Access Software -->
+  <rule id="100309" level="10">
+    <if_sid>2502</if_sid>
+    <dstport>5938|7070</dstport>
+    <description>Firewall: Outbound connection to remote-access port $(dstport) — possible RAT/RMM tool.</description>
+    <mitre>
+      <id>T1219</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100310: Outbound IRC traffic (ports 6660-6669, 6697) which
+       is commonly used for botnet C2 communication.
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1071.001 Application Layer Protocol: Web Protocols -->
+  <rule id="100310" level="12">
+    <if_sid>2502</if_sid>
+    <dstport>6660|6661|6662|6663|6664|6665|6666|6667|6668|6669|6697</dstport>
+    <description>Firewall: Outbound IRC traffic detected on port $(dstport) — possible botnet C2.</description>
+    <mitre>
+      <id>T1071</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100311: SOCKS proxy traffic (port 1080) outbound —
+       could indicate proxy pivoting or C2 relay.
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1090 Proxy -->
+  <rule id="100311" level="10">
+    <if_sid>2502</if_sid>
+    <dstport>1080</dstport>
+    <description>Firewall: Outbound SOCKS proxy traffic on port 1080 from $(srcip).</description>
+    <mitre>
+      <id>T1090</id>
+    </mitre>
+  </rule>
+
+  <!-- =====================================================
+       GROUP 4: Exfiltration (TA0010)
+       ===================================================== -->
+
+  <!-- Rule 100312: Large outbound data transfer — high frequency of
+       allowed outbound connections from a single source.
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1048 Exfiltration Over Alternative Protocol -->
+  <rule id="100312" level="10" frequency="100" timeframe="60">
+    <if_matched_sid>2502</if_matched_sid>
+    <same_source_ip />
+    <regex>OUT=\S+</regex>
+    <description>Firewall: Burst of outbound traffic from $(srcip) — 100+ connections in 60s, possible exfiltration.</description>
+    <mitre>
+      <id>T1048</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100313: Outbound FTP data transfer — allowed FTP (port 21)
+       connections could be used for data exfiltration.
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1048.003 Exfiltration Over Unencrypted Non-C2 Protocol -->
+  <rule id="100313" level="8">
+    <if_sid>2502</if_sid>
+    <dstport>21</dstport>
+    <regex>OUT=\S+</regex>
+    <description>Firewall: Outbound FTP connection allowed from $(srcip) to port 21 — possible data exfil.</description>
+    <mitre>
+      <id>T1048.003</id>
+    </mitre>
+  </rule>
+
+  <!-- =====================================================
+       GROUP 5: Impact (TA0040)
+       ===================================================== -->
+
+  <!-- Rule 100314: Possible DoS — massive inbound drops from a single
+       source indicate volumetric denial of service.
+       Base SID 2501 = generic firewall drop action.
+       MITRE: T1498 Network Denial of Service -->
+  <rule id="100314" level="14" frequency="50" timeframe="10">
+    <if_matched_sid>2501</if_matched_sid>
+    <same_source_ip />
+    <description>Firewall: Possible DoS — $(srcip) generated 50+ blocked packets in 10s.</description>
+    <mitre>
+      <id>T1498</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100315: Distributed DoS indicator — many different sources
+       hitting the same destination with dropped traffic.
+       Base SID 2501 = generic firewall drop action.
+       MITRE: T1498.001 Direct Network Flood -->
+  <rule id="100315" level="14" frequency="30" timeframe="10">
+    <if_matched_sid>2501</if_matched_sid>
+    <same_dstip />
+    <different_srcip />
+    <description>Firewall: Possible DDoS — multiple sources flooding $(dstip).</description>
+    <mitre>
+      <id>T1498.001</id>
+    </mitre>
+  </rule>
+
+  <!-- =====================================================
+       GROUP 6: Lateral Movement (TA0008)
+       ===================================================== -->
+
+  <!-- Rule 100316: Internal SMB traffic allowed — lateral movement
+       via Windows file sharing (port 445).
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1021.002 Remote Services: SMB/Windows Admin Shares -->
+  <rule id="100316" level="8">
+    <if_sid>2502</if_sid>
+    <dstport>445</dstport>
+    <description>Firewall: SMB traffic allowed to port 445 — $(srcip) to $(dstip), possible lateral movement.</description>
+    <mitre>
+      <id>T1021.002</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100317: Internal WinRM traffic (port 5985/5986) — remote
+       command execution between hosts.
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1021.006 Remote Services: Windows Remote Management -->
+  <rule id="100317" level="10">
+    <if_sid>2502</if_sid>
+    <dstport>5985|5986</dstport>
+    <description>Firewall: WinRM traffic allowed on port $(dstport) — $(srcip) to $(dstip).</description>
+    <mitre>
+      <id>T1021.006</id>
+    </mitre>
+  </rule>
+
+  <!-- =====================================================
+       GROUP 7: Defense Evasion / Policy Violations (TA0005)
+       ===================================================== -->
+
+  <!-- Rule 100318: Outbound Tor traffic — connections to common Tor
+       entry ports (9001, 9030, 9050, 9051, 9150).
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1090.003 Proxy: Multi-hop Proxy -->
+  <rule id="100318" level="12">
+    <if_sid>2502</if_sid>
+    <dstport>9001|9030|9050|9051|9150</dstport>
+    <description>Firewall: Outbound Tor traffic detected on port $(dstport) from $(srcip).</description>
+    <mitre>
+      <id>T1090.003</id>
+    </mitre>
+  </rule>
+
+  <!-- Rule 100319: VPN tunneling over non-standard ports — OpenVPN
+       default (1194) or WireGuard (51820) outbound.
+       Base SID 2502 = generic firewall accept/allow action.
+       MITRE: T1572 Protocol Tunneling -->
+  <rule id="100319" level="8">
+    <if_sid>2502</if_sid>
+    <dstport>1194|51820</dstport>
+    <description>Firewall: Outbound VPN tunnel traffic on port $(dstport) from $(srcip).</description>
+    <mitre>
+      <id>T1572</id>
+    </mitre>
+  </rule>
+
+</group>
