@@ -1,0 +1,326 @@
+<!--
+  Custom Windows detection rules — organized by MITRE ATT&CK groups.
+  Custom rule IDs use the 100000+ range.
+-->
+<group name="windows,local,">
+  <!-- =====================================================
+       GROUP 1: Windows Authentication  (MITRE T1110 Brute Force)
+       - 100200: TUNING  - suppress benign Type 5 service noise
+       - 100201: DETECTION - brute force (Type 3/10 failures)
+       ===================================================== -->
+  <!-- TUNING: down-rank Logon Type 5 (service) failed logons to level 2.
+       Benign service-auth noise (computer account, svchost.exe, no source IP).
+       VALIDATED via production evidence. -->
+  <rule id="100200" level="2">
+    <if_sid>60122</if_sid>
+    <field name="win.eventdata.logonType">^5$</field>
+    <description>Windows failed logon - service account (Logon Type 5), benign noise</description>
+  </rule>
+  <!-- DETECTION: brute force - 8+ remote failed logons (Type 3 network / 10 RDP)
+       within 120s. Scoped away from Type 5 noise. -->
+  <rule id="100201" level="10" frequency="8" timeframe="120">
+    <if_matched_sid>60122</if_matched_sid>
+    <field name="win.eventdata.logonType">^3$|^10$</field>
+    <description>Windows brute force - 8+ remote failed logons (Type 3/10) in 120s</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>authentication_failures,</group>
+  </rule>
+
+  <!-- =====================================================
+       GROUP 2: Credential Access  (MITRE T1003 OS Credential Dumping)
+       Base SIDs: Sysmon Event 1 (61601), Event 10 (61610), Event 8 (61608)
+       - 100202: LSASS memory access via Sysmon ProcessAccess
+       - 100203: Mimikatz-like process execution
+       - 100204: Credential dump tools targeting LSASS (procdump/comsvcs)
+       - 100205: CreateRemoteThread injected into LSASS
+       ===================================================== -->
+  <!-- DETECTION: Sysmon Event 10 — process accessing lsass.exe memory
+       with suspicious access masks (0x1010, 0x1FFFFF = PROCESS_ALL_ACCESS).
+       Common in Mimikatz, procdump, and similar dumpers. -->
+  <rule id="100202" level="14">
+    <if_sid>61610</if_sid>
+    <field name="win.eventdata.targetImage" type="pcre2">(?i)\\\\lsass\.exe$</field>
+    <field name="win.eventdata.grantedAccess">0x1FFFFF|0x1010|0x1038</field>
+    <description>Sysmon - suspicious process accessed LSASS memory (credential dumping)</description>
+    <mitre>
+      <id>T1003.001</id>
+    </mitre>
+    <group>credential_access,</group>
+  </rule>
+  <!-- DETECTION: Sysmon Event 1 — process name matches known credential
+       dumping tools: mimikatz, sekurlsa, kiwi. -->
+  <rule id="100203" level="15">
+    <if_sid>61601</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)mimikatz|sekurlsa|kiwi</field>
+    <description>Sysmon - Mimikatz or known credential dumping tool executed</description>
+    <mitre>
+      <id>T1003</id>
+    </mitre>
+    <group>credential_access,</group>
+  </rule>
+  <!-- DETECTION: Sysmon Event 1 — procdump or comsvcs.dll used to target
+       lsass.exe via command line (common dump technique). -->
+  <rule id="100204" level="14">
+    <if_sid>61601</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(procdump.*lsass|comsvcs.*MiniDump|rundll32.*comsvcs.*24)</field>
+    <description>Sysmon - credential dump tool targeting LSASS (procdump/comsvcs)</description>
+    <mitre>
+      <id>T1003.001</id>
+    </mitre>
+    <group>credential_access,</group>
+  </rule>
+  <!-- DETECTION: Sysmon Event 8 — CreateRemoteThread injected into
+       lsass.exe, typical of credential theft via code injection. -->
+  <rule id="100205" level="14">
+    <if_sid>61608</if_sid>
+    <field name="win.eventdata.targetImage" type="pcre2">(?i)\\\\lsass\.exe$</field>
+    <description>Sysmon - CreateRemoteThread injected into LSASS (credential theft)</description>
+    <mitre>
+      <id>T1003.001</id>
+    </mitre>
+    <group>credential_access,</group>
+  </rule>
+
+  <!-- =====================================================
+       GROUP 3: Persistence  (MITRE T1136, T1098, T1547, T1053, T1543)
+       Base SIDs: Win Security 4720 (60144), 4732 (60137),
+                  Sysmon Event 13 (61613), Event 1 (61601)
+       - 100206: Local account created
+       - 100207: User added to Administrators group
+       - 100208: Registry Run/RunOnce key persistence
+       - 100209: Scheduled task created via schtasks.exe
+       - 100210: New service installed via sc.exe
+       ===================================================== -->
+  <!-- DETECTION: Windows Security 4720 — new local user account created.
+       Attackers create local accounts to maintain persistent access. -->
+  <rule id="100206" level="10">
+    <if_sid>60144</if_sid>
+    <description>Windows - new local user account created (persistence)</description>
+    <mitre>
+      <id>T1136.001</id>
+    </mitre>
+    <group>persistence,</group>
+  </rule>
+  <!-- DETECTION: Windows Security 4732 — user added to the local
+       Administrators group. Privilege escalation or persistence indicator. -->
+  <rule id="100207" level="13">
+    <if_sid>60137</if_sid>
+    <field name="win.eventdata.targetUserName" type="pcre2">(?i)Administrators</field>
+    <description>Windows - user added to local Administrators group</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>persistence,</group>
+  </rule>
+  <!-- DETECTION: Sysmon Event 13 — registry value set on Run/RunOnce keys.
+       Classic persistence mechanism for surviving reboots. -->
+  <rule id="100208" level="12">
+    <if_sid>61613</if_sid>
+    <field name="win.eventdata.targetObject" type="pcre2">(?i)\\\\(Run|RunOnce)\\\\</field>
+    <description>Sysmon - registry Run/RunOnce key modified (boot persistence)</description>
+    <mitre>
+      <id>T1547.001</id>
+    </mitre>
+    <group>persistence,</group>
+  </rule>
+  <!-- DETECTION: Sysmon Event 1 — schtasks.exe creating a new scheduled
+       task via /create flag. Common persistence and execution method. -->
+  <rule id="100209" level="10">
+    <if_sid>61601</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\\\schtasks\.exe$</field>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)/create</field>
+    <description>Sysmon - scheduled task created via schtasks.exe (persistence)</description>
+    <mitre>
+      <id>T1053.005</id>
+    </mitre>
+    <group>persistence,</group>
+  </rule>
+  <!-- DETECTION: Sysmon Event 1 — sc.exe used to create a new Windows
+       service. Attackers install malicious services for persistence. -->
+  <rule id="100210" level="10">
+    <if_sid>61601</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\\\sc\.exe$</field>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)\screate\s</field>
+    <description>Sysmon - new service created via sc.exe (persistence)</description>
+    <mitre>
+      <id>T1543.003</id>
+    </mitre>
+    <group>persistence,</group>
+  </rule>
+
+  <!-- =====================================================
+       GROUP 4: Defense Evasion  (MITRE T1070, T1562, T1218, T1036)
+       Base SIDs: Sysmon Event 1 (61601)
+       - 100211: Event log cleared via wevtutil
+       - 100212: Windows Defender disabled via PowerShell
+       - 100213: Rundll32 executing suspicious DLL/script
+       - 100214: Process executing from Temp or AppData
+       ===================================================== -->
+  <!-- DETECTION: Sysmon Event 1 — wevtutil.exe used to clear event logs.
+       Attackers erase logs to cover tracks post-compromise. -->
+  <rule id="100211" level="14">
+    <if_sid>61601</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\\\wevtutil\.exe$</field>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)\s(cl|clear-log)\s</field>
+    <description>Sysmon - event log cleared via wevtutil.exe (anti-forensics)</description>
+    <mitre>
+      <id>T1070.001</id>
+    </mitre>
+    <group>defense_evasion,</group>
+  </rule>
+  <!-- DETECTION: Sysmon Event 1 — PowerShell disabling Windows Defender
+       real-time monitoring via Set-MpPreference. -->
+  <rule id="100212" level="13">
+    <if_sid>61601</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)Set-MpPreference.*-DisableRealtimeMonitoring\s+(\$true|1)</field>
+    <description>Sysmon - Windows Defender real-time protection disabled via PowerShell</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <group>defense_evasion,</group>
+  </rule>
+  <!-- DETECTION: Sysmon Event 1 — rundll32.exe executing JavaScript,
+       VBScript, or DLLs from temp/download paths (LOLBin abuse). -->
+  <rule id="100213" level="12">
+    <if_sid>61601</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\\\rundll32\.exe$</field>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(javascript:|shell32\.dll.*ShellExec_RunDLL|\\\\Temp\\\\|\\\\Downloads\\\\)</field>
+    <description>Sysmon - rundll32.exe suspicious execution (proxy execution)</description>
+    <mitre>
+      <id>T1218.011</id>
+    </mitre>
+    <group>defense_evasion,</group>
+  </rule>
+  <!-- DETECTION: Sysmon Event 1 — executable launched from Temp or AppData.
+       Malware commonly drops and runs from these writable directories. -->
+  <rule id="100214" level="10">
+    <if_sid>61601</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)(\\\\Temp\\\\|\\\\AppData\\\\(Local|Roaming)\\\\).*\.exe$</field>
+    <description>Sysmon - process executed from Temp or AppData directory (masquerading)</description>
+    <mitre>
+      <id>T1036.005</id>
+    </mitre>
+    <group>defense_evasion,</group>
+  </rule>
+
+  <!-- =====================================================
+       GROUP 5: Lateral Movement  (MITRE T1021 Remote Services)
+       Base SIDs: Win Security 4624 (60106), 5140 (60132),
+                  Sysmon Event 1 (61601)
+       - 100215: Successful RDP logon (Type 10)
+       - 100216: Admin share access (C$ / ADMIN$)
+       - 100217: PsExec-like remote service execution
+       ===================================================== -->
+  <!-- DETECTION: Windows Security 4624 — successful interactive RDP logon
+       (Logon Type 10). Tracks lateral movement via Remote Desktop. -->
+  <rule id="100215" level="8">
+    <if_sid>60106</if_sid>
+    <field name="win.eventdata.logonType">^10$</field>
+    <description>Windows - successful RDP logon (Type 10, lateral movement)</description>
+    <mitre>
+      <id>T1021.001</id>
+    </mitre>
+    <group>lateral_movement,</group>
+  </rule>
+  <!-- DETECTION: Windows Security 5140 — network access to administrative
+       shares C$ or ADMIN$. Used in lateral movement and data staging. -->
+  <rule id="100216" level="10">
+    <if_sid>60132</if_sid>
+    <field name="win.eventdata.shareName" type="pcre2">(?i)(C\$|ADMIN\$)</field>
+    <description>Windows - admin share accessed (C$/ADMIN$, lateral movement)</description>
+    <mitre>
+      <id>T1021.002</id>
+    </mitre>
+    <group>lateral_movement,</group>
+  </rule>
+  <!-- DETECTION: Sysmon Event 1 — PsExec or renamed variant launched.
+       PsExec is heavily used for remote code execution across hosts. -->
+  <rule id="100217" level="12">
+    <if_sid>61601</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)(\\\\psexe(c|svc)\.exe$|\\\\PSEXESVC\.exe$)</field>
+    <description>Sysmon - PsExec or PsExeSvc execution detected (remote execution)</description>
+    <mitre>
+      <id>T1570</id>
+    </mitre>
+    <group>lateral_movement,</group>
+  </rule>
+
+  <!-- =====================================================
+       GROUP 6: Execution  (MITRE T1059 Command and Scripting Interpreter)
+       Base SIDs: Sysmon Event 1 (61601)
+       - 100218: PowerShell encoded command (-enc / -encodedcommand)
+       - 100219: PowerShell download cradle (Net.WebClient, Invoke-WebRequest)
+       - 100220: Mshta.exe executing script content (LOLBin)
+       ===================================================== -->
+  <!-- DETECTION: Sysmon Event 1 — PowerShell invoked with encoded command
+       flag. Attackers encode commands to evade string-based detection. -->
+  <rule id="100218" level="12">
+    <if_sid>61601</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\\\powershell\.exe$</field>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)\s-(e|enc|encodedcommand)\s</field>
+    <description>Sysmon - PowerShell executed with encoded command (obfuscation)</description>
+    <mitre>
+      <id>T1059.001</id>
+    </mitre>
+    <group>execution,</group>
+  </rule>
+  <!-- DETECTION: Sysmon Event 1 — PowerShell download cradle detected.
+       Matches Net.WebClient, Invoke-WebRequest, Invoke-RestMethod,
+       Start-BitsTransfer, and curl/wget aliases. -->
+  <rule id="100219" level="12">
+    <if_sid>61601</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\\\powershell\.exe$</field>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(Net\.WebClient|Invoke-WebRequest|Invoke-RestMethod|Start-BitsTransfer|DownloadString|DownloadFile)</field>
+    <description>Sysmon - PowerShell download cradle detected (staging payload)</description>
+    <mitre>
+      <id>T1059.001</id>
+    </mitre>
+    <group>execution,</group>
+  </rule>
+  <!-- DETECTION: Sysmon Event 1 — mshta.exe executing inline script or
+       remote HTA file. Living-off-the-land binary abuse. -->
+  <rule id="100220" level="12">
+    <if_sid>61601</if_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)\\\\mshta\.exe$</field>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(vbscript:|javascript:|http://|https://)</field>
+    <description>Sysmon - mshta.exe executing script or remote HTA (LOLBin abuse)</description>
+    <mitre>
+      <id>T1218.005</id>
+    </mitre>
+    <group>execution,</group>
+  </rule>
+
+  <!-- =====================================================
+       GROUP 7: Discovery & Impact  (MITRE T1087, T1082, T1490)
+       Base SIDs: Sysmon Event 1 (61601)
+       - 100221: Host reconnaissance commands (net, whoami, ipconfig, systeminfo)
+       - 100222: Shadow copy deletion / recovery inhibition
+       ===================================================== -->
+  <!-- DETECTION: Sysmon Event 1 — burst of host-enumeration commands
+       (net user, whoami, ipconfig, systeminfo, nltest) within 180s.
+       Post-compromise discovery phase indicator. -->
+  <rule id="100221" level="10" frequency="3" timeframe="180">
+    <if_matched_sid>61601</if_matched_sid>
+    <field name="win.eventdata.image" type="pcre2">(?i)(\\\\net\.exe$|\\\\whoami\.exe$|\\\\ipconfig\.exe$|\\\\systeminfo\.exe$|\\\\nltest\.exe$)</field>
+    <description>Sysmon - host reconnaissance burst (3+ enumeration commands in 180s)</description>
+    <mitre>
+      <id>T1087.001</id>
+      <id>T1082</id>
+    </mitre>
+    <group>discovery,</group>
+  </rule>
+  <!-- DETECTION: Sysmon Event 1 — shadow copy deletion or boot recovery
+       disabled. Ransomware precursor: vssadmin delete, wmic shadowcopy,
+       bcdedit /set recoveryenabled no. -->
+  <rule id="100222" level="15">
+    <if_sid>61601</if_sid>
+    <field name="win.eventdata.commandLine" type="pcre2">(?i)(vssadmin.*delete\s+shadows|wmic.*shadowcopy.*delete|bcdedit.*/set.*recoveryenabled.*no)</field>
+    <description>Sysmon - shadow copy deletion or recovery disabled (ransomware precursor)</description>
+    <mitre>
+      <id>T1490</id>
+    </mitre>
+    <group>impact,</group>
+  </rule>
+</group>
