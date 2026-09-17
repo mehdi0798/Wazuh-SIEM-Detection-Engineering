@@ -1,4 +1,4 @@
-<div align="center">
+D<div align="center">
 
 # 🛡️ Wazuh SIEM — Detection Engineering
 
