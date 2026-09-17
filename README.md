@@ -4,12 +4,8 @@
 
 **A security monitoring platform on Wazuh (SIEM/XDR) — custom detection rules, documented methodology, and MITRE ATT&CK mapping.**
 
-![Wazuh](https://img.shields.io/badge/Wazuh-4.14.x-005792?style=for-the-badge)
-![Platform](https://img.shields.io/badge/Endpoints-Windows%20%7C%20Linux-0078D6?style=for-the-badge)
-![MITRE](https://img.shields.io/badge/Mapped%20to-MITRE%20ATT%26CK-C42E2E?style=for-the-badge)
-![Status](https://img.shields.io/badge/status-in%20progress-F2A81D?style=for-the-badge)
 
-</div>
+
 
 > [!NOTE]
 > **Sanitized portfolio version.** All IPs, hostnames, credentials, and serials are masked with `XXX`. No real infrastructure details are exposed.
