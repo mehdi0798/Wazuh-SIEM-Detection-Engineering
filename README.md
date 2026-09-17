@@ -25,11 +25,7 @@ These resources document a repeatable detection-engineering workflow:
 
 ## 🗺️ Architecture
 
-<div align="center">
 
-![Architecture](architecture/architecture.png)
-
-</div>
 
 Two subnets: an **infrastructure** subnet hosting the Wazuh server (manager, indexer, dashboard as Docker containers) and two Windows Server 2016 production endpoints; and a **lab** subnet with test endpoints and a Sophos XG firewall. Agents ship logs to the manager over encrypted TCP `1514`; the manager decodes, runs rules, and alerts are stored in the indexer and shown in the dashboard.
 
